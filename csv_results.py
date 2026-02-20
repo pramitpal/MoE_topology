@@ -15,7 +15,7 @@ if __name__ == "__main__":
     
     net = NetworkTopology(PE_count=PE_count)
     
-    # # BFT##################################
+    # BFT##################################
     net.add_level("L1", router_count=8)
     net.add_level("L2", router_count=4)
     net.add_level("L3", router_count=2)
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     net.visualize(title=f"Custom Network Topology", figsize=(12, 5))
 
     TPs_list = get_all_scenarios_even_or_one(PE_count)
-    DRAM_points = [ 'L2']
+    DRAM_points = [ 'L1']
     top_level = max(net.routers.keys(), key=lambda x: int(x[1:]))
     host_names = [f'{top_level}_{i}' for i in range(len(net.routers[top_level]))]
 
@@ -76,10 +76,11 @@ if __name__ == "__main__":
                 TPs=each,
                 routers=routers,
                 host_names=host_names,
-                RESOLUTION=16,
+                RESOLUTION=4,
                 max_pes=32
             )
-            m, d, a = evaluate_network(net, traffic_matrix, host_names)
+            
+            m, d, a = evaluate_network(net, traffic_matrix, host_names, dram_point=DRAM_point)
             results[tuple(each)][DRAM_point] = (m, d)
             # pprint.pprint(f'mean: {m:.4f}, std: {d:.4f}')
 
