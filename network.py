@@ -690,8 +690,9 @@ def evaluate_network(network_input, traffic_matrix, root_nodes=None, dram_point=
         variance_sum += (util - m) ** 2
 
     d = math.sqrt(variance_sum / num_directed_links)
-
-    return m, d, max(get_router_ports(network_input))**2
+    area=sum(get_router_ports(network_input))
+    # area=max(get_router_ports(network_input))**2
+    return m, d, area
 ######################
 def get_factors(n):
     """
@@ -718,17 +719,20 @@ def generate_random_solution(net_input):
             factors = get_factors(current_count)
             if i == 0:
                 factors = [f for f in factors if f < PE_count and f > 1]
+            else:
+                factors = [f for f in factors if f <= current_count and f > 1]
             # if i == num_levels - 1:
             #     factors = [f for f in factors if f < current_count]
             if not factors:
+                num_levels = i  # Set to actual number of levels created
                 break
             selected_routers = random.choice(factors)
             level_router_counts.append(selected_routers)
             current_count = selected_routers
             net.add_level(f"L{i+1}", router_count=selected_routers)
-            if selected_routers == 1:
-                num_levels = i + 1
-                break
+            # if selected_routers == 1:
+            #     num_levels = i + 1
+            #     break
 
         try:
             num_groups = len(net.routers['L1'])
@@ -791,21 +795,25 @@ def perturb(net_input, level_router_counts, groups):
         num_levels = len(new_counts)
 
         # Pick a random perturbation
-        perturb_type = random.choice(['change_router_count', 'change_groups','add_level', 'remove_level'])
+        perturb_type = random.choice(['change_router_count', 'change_groups', 'add_level', 'remove_level'])
         # print(f"Attempting perturbation: {perturb_type}")
         # ── PERTURB 1: Change one level's router count ─────────────────────
         if perturb_type == 'change_router_count':
             
             i = random.randint(0, num_levels - 1)
             below_count = PE_count if i == 0 else new_counts[i - 1]
-            valid = [f for f in get_factors(below_count) if f < below_count and f > 1]
-            valid = [f for f in valid if f != new_counts[i]]  # must be different
+            above_count = new_counts[i]
+            valid = [f for f in get_factors(below_count) if f < below_count and f > 1 and f>=above_count]
+                 
+            # valid = [f for f in valid if f != new_counts[i]]  # must be different
+       
             if not valid:
                 continue
             new_counts[i] = random.choice(valid)
             # Cascade: levels above must still be valid factors
             for j in range(i + 1, num_levels):
-                valid_above = [f for f in get_factors(new_counts[j - 1]) if f < new_counts[j - 1]]
+                valid_above = [f for f in get_factors(new_counts[j - 1]) if f < new_counts[j - 1] and f > 1]
+        
                 if not valid_above:
                     break
                 if new_counts[j] not in valid_above:
@@ -823,22 +831,84 @@ def perturb(net_input, level_router_counts, groups):
                 continue
             new_groups_list = groups.copy()
             new_groups_list[i + 1] = random.choice(valid)
+        # ── PERTURB 2: Change num_groups for one connection ─────────────────
+        # elif perturb_type == 'change_groups':
+        #     if num_levels < 2:
+        #         continue
+                
+        #     # Allow picking index from 0 (PE->L1) up to num_levels - 2
+        #     i = random.randint(0, num_levels - 2) 
+        #     new_groups_list = groups.copy()
+            
+        #     if i == 0:
+        #         # Level 0 (PE -> L1 connection)
+        #         # Groups here must be a factor of PE_count and strictly > 1
+        #         valid = [f for f in get_factors(PE_count) if f < PE_count and f > 1]
+        #         valid = [f for f in valid if f != new_groups_list[0]]
+                
+        #         if not valid:
+        #             continue
+                    
+        #         chosen_group = random.choice(valid)
+        #         new_groups_list[0] = chosen_group
+                
+        #         # RULE: Number of L1 routers must match this new group count
+        #         new_counts[0] = chosen_group
+                
+        #         # Cascade Fix: Because L1 routers changed, we MUST validate higher levels
+        #         truncate_at = None
+        #         for j in range(1, num_levels):
+        #             # Ensure cascade never picks 1
+        #             valid_above = [f for f in get_factors(new_counts[j - 1]) 
+        #                            if f < new_counts[j - 1] and f > 1]
+        #             if not valid_above:
+        #                 truncate_at = j
+        #                 break
+        #             if new_counts[j] not in valid_above:
+        #                 new_counts[j] = random.choice(valid_above)
+                
+        #         # Safely drop any top levels if the cascade hit a dead end
+        #         if truncate_at is not None:
+        #             new_counts = new_counts[:truncate_at]
+        #             new_groups_list = new_groups_list[:truncate_at]
+                    
+        #     else:
+        #         # Intermediate connections (Keeping your original logic for i >= 1)
+        #         valid = [f for f in get_factors(new_counts[i]) if f < new_counts[i]]
+        #         valid = [f for f in valid if f != new_groups_list[i + 1]] 
+        #         if not valid:
+        #             continue
+        #         new_groups_list[i + 1] = random.choice(valid)
 
         # ── PERTURB 3: Add a level ──────────────────────────────────────────
         elif perturb_type == 'add_level':
             if num_levels >= 5:
                 continue
-            i = random.randint(0, num_levels - 1)  # insert after level i
-            below_count = PE_count if i == 0 else new_counts[i - 1]
-            above_count = new_counts[i]
-            # New level router count must be factor of below and above must be factor of new
-            valid = [f for f in get_factors(below_count) 
-                     if f < below_count and above_count in get_factors(f)]
-            if not valid:
+            
+            # 1. Create a shuffled list of all possible insertion points
+            possible_indices = list(range(num_levels))
+            random.shuffle(possible_indices)
+            
+            level_added = False
+            for i in possible_indices:
+                below_count = PE_count if i == 0 else new_counts[i - 1]
+                above_count = new_counts[i]
+                
+                # 2. Add 'f != 1' to ensure 1 is excluded from valid options
+                valid = [f for f in get_factors(below_count) 
+                         if f < below_count and above_count in get_factors(f) and f != 1]
+                
+                if valid:
+                    new_count = random.choice(valid)
+                    print(f"Adding level between L{i} and L{i+1} with {new_count} routers")
+                    new_counts.insert(i, new_count)
+                    num_levels += 1
+                    level_added = True
+                    break  # Success! Break out of the loop
+            
+            # If we tried all possible levels and none were valid, skip perturbation
+            if not level_added:
                 continue
-            new_count = random.choice(valid)
-            new_counts.insert(i, new_count)
-            num_levels += 1
 
         # ── PERTURB 4: Remove a level ───────────────────────────────────────
         elif perturb_type == 'remove_level':
@@ -954,12 +1024,18 @@ def get_objectives(network_input, PE_count, DRAM_point, A_dim, B_dim, PE_dim, pa
             RESOLUTION=16,
             max_pes=PE_count
         )
+        min_nonzero = traffic_matrix[traffic_matrix > 0].min().min()
+        # 2. If the matrix isn't entirely zeros, scale it down
+        if pd.notna(min_nonzero) and min_nonzero > 0:
+            scale_factor = min_nonzero / 5.0
+            traffic_matrix = (traffic_matrix / scale_factor).round().astype(int)
+        # -------------------------
         
         m, d, a = evaluate_network(network_input, traffic_matrix, host_names, dram_point=DRAM_point)
         mean_utils.append(round(m, 1))
         std_utils.append(round(d, 1))
     
-    return np.mean(mean_utils).item(), np.mean(std_utils).item(), a
+    return np.mean(mean_utils).item(), np.max(std_utils).item()-np.mean(std_utils).item(), a
 
 ####################################
 
@@ -1114,71 +1190,59 @@ def compute_total_hv(archive):
 
 
 
-def plot_pareto_front_interactive(archive):
-    objs = [o for _, _, _, o in archive]
-    m_vals = [o[0] for o in objs]
-    d_vals = [o[1] for o in objs]
-    a_vals = [o[2] for o in objs]
-    labels = [f"S{i+1}<br>counts={c}<br>groups={g}<br>m={o[0]:.2f}, d={o[1]:.2f}, a={o[2]:.2f}" 
-              for i, (_, c, g, o) in enumerate(archive)]
+def plot_pareto_front_3d(archive, history_objs):
+    """
+    Plots a static 3D scatter plot of all explored points and the Pareto archive.
+    
+    Args:
+        archive: List of tuples from AMOSA, e.g., [(_, counts, groups, (m, d, a)), ...]
+        history_objs: List of all evaluated objective tuples, e.g., [(m, d, a), ...]
+    """
+    # 1. Extract Archive (Pareto Front) objectives
+    # Assuming archive structure: (solution, counts, groups, (m, d, a))
+    a_m = [o[3][0] for o in archive]
+    a_d = [o[3][1] for o in archive]
+    a_a = [o[3][2] for o in archive]
 
-    fig = go.Figure()
+    # 2. Extract History (All Explored) objectives
+    # Assuming history_objs structure: (m, d, a)
+    h_m = [obj[0] for obj in history_objs]
+    h_d = [obj[1] for obj in history_objs]
+    h_a = [obj[2] for obj in history_objs]
 
-    # Pareto surface (mesh connecting all points)
-    if len(archive) >= 3:
-        fig.add_trace(go.Mesh3d(
-            x=m_vals, y=d_vals, z=a_vals,
-            alphahull=0,        # convex hull of all points
-            opacity=0.25,
-            color='cyan',
-            name='Pareto Surface',
-            hoverinfo='skip'
-        ))
+    # 3. Setup Matplotlib 3D Figure
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
 
-    # Scatter points on top
-    fig.add_trace(go.Scatter3d(
-        x=m_vals, y=d_vals, z=a_vals,
-        mode='markers+text',
-        text=[f"S{i+1}" for i in range(len(archive))],
-        textposition='top center',
-        hovertext=labels,
-        hoverinfo='text',
-        name='Pareto Solutions',
-        marker=dict(
-            size=8,
-            color=m_vals,
-            colorscale='Viridis',
-            colorbar=dict(title='Mean Util'),
-            opacity=1.0,
-            line=dict(color='black', width=1)
-        )
-    ))
+    # 4. Plot all explored points (Background, semi-transparent)
+    ax.scatter(h_m, h_d, h_a, 
+               c='blue', 
+               alpha=0.4, 
+               marker='o', 
+               s=20, 
+               label='Explored Points')
 
-    # Lines connecting points to the "floor" (projection)
-    for m, d, a in zip(m_vals, d_vals, a_vals):
-        fig.add_trace(go.Scatter3d(
-            x=[m, m], y=[d, d], z=[min(a_vals), a],
-            mode='lines',
-            line=dict(color='gray', width=1, dash='dot'),
-            showlegend=False,
-            hoverinfo='skip'
-        ))
+    # 5. Plot Pareto archive points (Foreground, distinct color)
+    ax.scatter(a_m, a_d, a_a, 
+               c='red', 
+               alpha=1.0, 
+               marker='^', 
+               s=60, 
+               edgecolors='black', 
+               label='Pareto Front (Archive)')
 
-    fig.update_layout(
-        title='AMOSA Pareto Front (Interactive)',
-        scene=dict(
-            xaxis_title='Mean Utilization (m)',
-            yaxis_title='Std Utilization (d)',
-            zaxis_title='Hardware Cost (a)',
-            xaxis=dict(backgroundcolor='rgb(240,240,240)'),
-            yaxis=dict(backgroundcolor='rgb(230,230,230)'),
-            zaxis=dict(backgroundcolor='rgb(220,220,220)'),
-        ),
-        width=950,
-        height=750,
-        legend=dict(x=0.01, y=0.99)
-    )
+    # 6. Formatting
+    ax.set_title("AMOSA Design Space Exploration", fontsize=14, pad=20)
+    ax.set_xlabel('Mean Utilization (m)', labelpad=10)
+    ax.set_ylabel('Std Utilization (d)', labelpad=10)
+    ax.set_zlabel('Hardware Cost (a)', labelpad=10)
+    
+    # Adjust viewing angle if desired (elevation, azimuth)
+    ax.view_init(elev=30, azim=120) 
 
-    fig.write_html('pareto_front.html')
-    # fig.show()
-    print("Saved to pareto_front.html")
+    ax.legend(loc='upper left')
+    plt.tight_layout()
+
+    # Save and show
+    plt.savefig('pareto_front_static.png', dpi=300)
+    print("Saved to pareto_front_static.png")

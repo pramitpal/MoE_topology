@@ -1,7 +1,7 @@
 import pandas as pd
 import re, math
 from collections import defaultdict
-
+import pprint
 #############Traffic Generator###############
 def get_PE_traffic(rows, cols, M, precision, host_names=None):
     """
@@ -13,6 +13,7 @@ def get_PE_traffic(rows, cols, M, precision, host_names=None):
         precision: Bits per data packet
         host_names: List of host names (e.g., ['L3_0', 'L3_1']). If None, uses single 'Host'
     """
+    # print(f"Generating traffic for PE array {rows}x{cols} with M={M} and precision={precision} bits")
     if host_names is None:
         host_names = ['Host']
 
@@ -29,7 +30,7 @@ def get_PE_traffic(rows, cols, M, precision, host_names=None):
     total_outputs = 0
     expected_outputs = M * cols
     all_cycle_traffic = []
-
+    t_fully_utilized = -1
     while True:
         cycle_traffic = {}
         next_h_state = [[0] * cols for _ in range(rows)]
@@ -64,7 +65,18 @@ def get_PE_traffic(rows, cols, M, precision, host_names=None):
 
         all_cycle_traffic.append(cycle_traffic.copy())
         h_state = next_h_state
-
+        # --- NEW PIPELINE DETECTION LOGIC ---
+        active_pe_count = sum(sum(row) for row in h_state)
+        # print(f"Cycle {t}: Active PEs = {active_pe_count}, Total Outputs = {total_outputs}")
+        if active_pe_count == rows * cols:
+            # print(f"100% Utilization achieved at cycle {t}")
+            t_fully_utilized = t
+            
+        if t == t_fully_utilized:
+            # print("Terminating 1 cycle after reaching full utilization.")
+            # pprint.pprint(cycle_traffic)
+            break
+        # ------------------------------------
         # Termination Logic
         if cycle_traffic:
             consecutive_empty = 0
@@ -75,8 +87,8 @@ def get_PE_traffic(rows, cols, M, precision, host_names=None):
             elif consecutive_empty > max_cycles:
                 break
         t += 1
-
-    return all_cycle_traffic
+    # pprint.pprint(all_cycle_traffic[-1])
+    return [all_cycle_traffic[-1]]
 
 
 def create_traffic_matrices_per_cycle(traffic_list):
@@ -186,19 +198,20 @@ def calculate_traffic_for_TPs(A_dim, B_dim, PE_dim, TPs,
                 cols = TP // r
                 break
 
-        M = A_row_tiles
+        M = A_col_tiles
         total_tile_ops = A_row_tiles * B_col_tiles * A_col_tiles
         
         parallel_cycles = math.ceil(total_tile_ops / TP)
-        # print(parallel_cycles)
+        # print(f"\nparallel_cycles: {parallel_cycles}")
         # Generate base PE traffic
         cycle_dfs = create_traffic_matrices_per_cycle(
-            get_PE_traffic(rows, cols, M, RESOLUTION, host_names=host_names)
+            get_PE_traffic(rows, cols, M, precision=4, host_names=host_names)
         )
-        sum_df = sum(cycle_dfs, pd.DataFrame(0, index=cycle_dfs[0].index, columns=cycle_dfs[0].columns)).fillna(0) * parallel_cycles\
-        *PE_dim[0]*PE_dim[1]
-
+   
+        sum_df = sum(cycle_dfs, pd.DataFrame(0, index=cycle_dfs[0].index, columns=cycle_dfs[0].columns)).fillna(0)*PE_dim[0]
+        # pprint.pprint(sum_df)
         # Add DRAM weight-loading traffic
+        
         if routers is not None and tp_idx < len(routers):
             router_group = routers[tp_idx]       # e.g., ['L2_0', 'L2_1'] for this expert
             N = len(router_group)
@@ -209,12 +222,13 @@ def calculate_traffic_for_TPs(A_dim, B_dim, PE_dim, TPs,
             B_col_tiles = math.ceil(B_dim[1] / PE_dim[1])
             total_weight_tiles = B_row_tiles * B_col_tiles
             # 2. Ncycle: Weight tiles per PE (assuming even distribution)
-            Ncycle = total_weight_tiles / TP
+            # Ncycle = total_weight_tiles / TP
+            Ncycle = 1
             # 3. Elements per tile
             elements_per_tile = PE_dim[0] * PE_dim[1]
             # 4. Traffic per Router per PE
             # Ncycle * elements_per_tile * Resolution / Routers
-            traffic_per_router_per_pe = math.ceil(Ncycle * elements_per_tile * RESOLUTION / N)
+            traffic_per_router_per_pe = math.ceil(Ncycle * elements_per_tile*4 / N)
             
             for pe_global in range(tp_start, tp_end + 1):
                 pe_local = pe_global - tp_start

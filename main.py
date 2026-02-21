@@ -7,23 +7,27 @@ import pprint, csv
 if __name__ == "__main__":
 
     PE_count = 32
-    A_dim = [64, 256]
-    B_dim = [256, 64]
+    Batch=64
+    dmodel=2048
+    dff=1408
+    A_dim = [Batch, dmodel]
+    B_dim = [dmodel, dff]
     PE_dim = [64, 64]
     DRAM_point = 'L1'
-    partitions = 100
+    partitions = 300
 
     # AMOSA parameters
     T_init = T_curr = 100.0
-    T_final = 20
+    T_final = 50
     alpha = 0.96
     Iter_per_temp = 1
-    archive_size = 4
+    archive_size = 5
 
     # Generate initial solution
     net = NetworkTopology(PE_count=PE_count)
     net, level_router_counts, groups = generate_random_solution(net)
     current_obj = get_objectives(net, PE_count, DRAM_point, A_dim, B_dim, PE_dim, partitions)
+    history_objs = [current_obj]
     current_net, current_counts, current_groups = net, level_router_counts, groups
     # Initialize archive
     archive = [(current_net, current_counts, current_groups, current_obj)]
@@ -41,6 +45,7 @@ if __name__ == "__main__":
             try:
                 candidate_obj = get_objectives(candidate_net, PE_count, DRAM_point,
                                                A_dim, B_dim, PE_dim, partitions)
+                history_objs.append(candidate_obj)
             except Exception as e:
                 print(f"  Evaluation failed: {e}")
                 continue
@@ -82,7 +87,7 @@ if __name__ == "__main__":
 
     # Results
     print("\n=== PARETO FRONT ===")
-    plot_pareto_front_interactive(archive)
+    plot_pareto_front_3d(archive, history_objs)
     for i, (sol_net, sol_counts, sol_groups, sol_obj) in enumerate(archive):
         print(f"Solution {i+1}: counts={sol_counts}, groups={sol_groups}, obj={sol_obj}")
         sol_net.visualize(title=f"solution_{i+1}.png",figsize=(12, 5))

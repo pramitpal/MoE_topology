@@ -16,44 +16,45 @@ if __name__ == "__main__":
     net = NetworkTopology(PE_count=PE_count)
     
     # BFT##################################
-    net.add_level("L1", router_count=8)
-    net.add_level("L2", router_count=4)
-    net.add_level("L3", router_count=2)
-    num_groups = 8
-    p, c = net.calculate_radix(32, 8, num_groups=num_groups, redundancy_factor=2)
-    result1 = net.connect_levels("PE", "L1", num_groups=num_groups, parents_per_router=p,children_per_router=c)
-    num_groups = 2
-    p, c = net.calculate_radix(8, 4, num_groups=num_groups, redundancy_factor=2)
-    result1 = net.connect_levels("L1", "L2", num_groups=num_groups, parents_per_router=p,children_per_router=c)
-    num_groups = 1
-    p, c = net.calculate_radix(4, 2, num_groups=num_groups, redundancy_factor=2)
-    result1 = net.connect_levels("L2", "L3", num_groups=num_groups, parents_per_router=p,children_per_router=c)
-    ####################################### FT###############################
     # net.add_level("L1", router_count=8)
-    # net.add_level("L2", router_count=8)
-    # net.add_level("L3", router_count=4)
+    # net.add_level("L2", router_count=4)
+    # net.add_level("L3", router_count=2)
     # num_groups = 8
     # p, c = net.calculate_radix(32, 8, num_groups=num_groups, redundancy_factor=2)
     # result1 = net.connect_levels("PE", "L1", num_groups=num_groups, parents_per_router=p,children_per_router=c)
-    # num_groups = 4
-    # p, c = net.calculate_radix(8, 8, num_groups=num_groups, redundancy_factor=2)
+    # num_groups = 2
+    # p, c = net.calculate_radix(8, 4, num_groups=num_groups, redundancy_factor=2)
     # result1 = net.connect_levels("L1", "L2", num_groups=num_groups, parents_per_router=p,children_per_router=c)
     # num_groups = 1
-    # p, c = net.calculate_radix(8, 4, num_groups=num_groups, redundancy_factor=2)
+    # p, c = net.calculate_radix(4, 2, num_groups=num_groups, redundancy_factor=2)
     # result1 = net.connect_levels("L2", "L3", num_groups=num_groups, parents_per_router=p,children_per_router=c)
+    ####################################### FT###############################
+    net.add_level("L1", router_count=8)
+    net.add_level("L2", router_count=8)
+    net.add_level("L3", router_count=4)
+    num_groups = 8
+    p, c = net.calculate_radix(32, 8, num_groups=num_groups, redundancy_factor=2)
+    result1 = net.connect_levels("PE", "L1", num_groups=num_groups, parents_per_router=p,children_per_router=c)
+    num_groups = 4
+    p, c = net.calculate_radix(8, 8, num_groups=num_groups, redundancy_factor=2)
+    result1 = net.connect_levels("L1", "L2", num_groups=num_groups, parents_per_router=p,children_per_router=c)
+    num_groups = 1
+    p, c = net.calculate_radix(8, 4, num_groups=num_groups, redundancy_factor=2)
+    result1 = net.connect_levels("L2", "L3", num_groups=num_groups, parents_per_router=p,children_per_router=c)
     # ######################Ring
-    level='L1'
-    for i in range(len(net.routers[level])):
-        net.connect(f'{level}_{i}', f'{level}_{i+1}')
-        if i == len(net.routers[level]) - 1:
-            net.connect(f'{level}_{i}', f'{level}_0')
+    # level='L1'
+    # for i in range(len(net.routers[level])):
+    #     net.connect(f'{level}_{i}', f'{level}_{i+1}')
+    #     if i == len(net.routers[level]) - 1:
+    #         net.connect(f'{level}_{i}', f'{level}_0')
     #######################
     # Build and Visualize
     net.build()
     net.visualize(title=f"Custom Network Topology", figsize=(12, 5))
 
     TPs_list = get_all_scenarios_even_or_one(PE_count)
-    DRAM_points = [ 'L1']
+    # TPs_list =[[32]]
+    DRAM_points = ['L2']
     top_level = max(net.routers.keys(), key=lambda x: int(x[1:]))
     host_names = [f'{top_level}_{i}' for i in range(len(net.routers[top_level]))]
 
@@ -77,27 +78,13 @@ if __name__ == "__main__":
                 routers=routers,
                 host_names=host_names,
                 RESOLUTION=4,
-                max_pes=32
+                max_pes=sum(TPs_list[0])
             )
-            
+            # pprint.pprint(f"Traffic Matrix for TP scenario: {each}, DRAM point: {DRAM_point}")
+            # pprint.pprint(traffic_matrix)
             m, d, a = evaluate_network(net, traffic_matrix, host_names, dram_point=DRAM_point)
             results[tuple(each)][DRAM_point] = (m, d)
-            # pprint.pprint(f'mean: {m:.4f}, std: {d:.4f}')
-
-    # Write to CSV
-    # with open('results.csv', 'w', newline='') as f:
-    #     writer = csv.writer(f)
-    #     # Header
-    #     header = ['TP_scenario'] + [f'{dp}_{stat}' for dp in DRAM_points for stat in ['mean', 'std']]
-    #     writer.writerow(header)
-    #     # Rows
-    #     for tp, dp_results in results.items():
-    #         row = [str(list(tp))]
-    #         for dp in DRAM_points:
-    #             row.append(f"{dp_results[dp][0]:.4f}")
-    #             row.append(f"{dp_results[dp][1]:.4f}")
-    #         writer.writerow(row)
-    # Calculate and display summary statistics
+            
     print("\n" + "="*40)
     print(" SUMMARY STATISTICS")
     print("="*40)
@@ -124,4 +111,5 @@ if __name__ == "__main__":
         print("-" * 20)
         print(f"Mean (m)         -> Avg: {avg_mean:.4f} | Max: {max_mean:.4f} | Min: {min_mean:.4f}")
         print(f"Deviation (d)    -> Avg: {avg_std:.4f} | Max: {max_std:.4f} | Min: {min_std:.4f}")
+        print(f"Area: {a:.4f}")
         print("="*40)
